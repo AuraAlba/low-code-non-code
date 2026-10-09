@@ -1,660 +1,282 @@
-# 📝 Taller Práctico: Orquestación de Incidentes Críticos y Despliegues (LCNC)
+# 🛠️ Taller Práctico: Ecosistemas Low-Code — Automatización Backend vs. Interfaces Frontend
 
-## 📌 Caso de Uso de Negocio
+## 🎯 Objetivo del Taller
 
-Un sistema de monitoreo de infraestructura, como **Datadog**, **Prometheus** o un **Healthcheck de GitHub Actions**, envía una alerta en formato **JSON** cuando ocurre un fallo en un entorno de producción o staging.
+Construir la misma lógica de negocio en dos entornos Low-Code diferentes (**n8n y Appsmith**) para comparar su arquitectura, experiencia de desarrollo, facilidad de uso y casos de aplicación ideales.
 
-El objetivo del taller es construir un flujo de automatización utilizando una herramienta **Low-Code/No-Code (LCNC)**, seleccionando entre **n8n** o **Appsmith**, que permita:
+## 📌 Escenario de Negocio
 
-1. Recibir una alerta de infraestructura.
-2. Procesar el payload recibido.
-3. Clasificar automáticamente la gravedad del incidente.
-4. Ejecutar acciones según el nivel de criticidad.
-5. Registrar los eventos generados.
-6. Notificar los incidentes críticos.
+El departamento de Operaciones necesita un sistema para **evaluar y procesar solicitudes de descuento para clientes**.
 
----
+El sistema debe aplicar las siguientes reglas de negocio:
 
-# 🎯 Guía Paso a Paso
+1. **Aprobación automática:** si el porcentaje de descuento solicitado es menor o igual al 15 %.
+2. **Aprobación gerencial:** si el porcentaje de descuento solicitado es superior al 15 %, la solicitud pasa al estado `REQUIERE_APROBACION_GERENCIAL`.
+3. **Rechazo por exceso:** si el valor monetario del descuento supera los $5.000, la solicitud se marca como `RECHAZADO_EXCESIVO`.
 
-## 1. Selección de la Herramienta
-
-Seleccionar una de las siguientes plataformas:
-
-### Opción A — n8n
-
-Plataforma enfocada principalmente en **automatización de procesos y eventos**.
-
-Para este ejercicio se utilizará:
-
-- Nodo **Webhook** para recibir las alertas.
-- Nodo **Code** para procesar la lógica de negocio.
-- Nodo **IF / Switch** para enrutar los eventos.
-- Nodo de almacenamiento para registrar los incidentes.
-- Nodo de notificación para alertas críticas.
-
-Flujo general:
-
-```text
-[ Webhook ]
-     ↓
-[ Code - JavaScript ]
-     ↓
-[ IF / Switch ]
-   ↙       ↘
-CRÍTICO   ADVERTENCIA / INFO
-  ↓              ↓
-[Registro]    [Historial]
-  ↓
-[Notificación]
-```
+> **Importante:** Las reglas se evalúan en orden de prioridad. El rechazo por exceso tiene prioridad sobre la aprobación automática y la aprobación gerencial.
 
 ---
 
-### Opción B — Appsmith
+# ⚙️ Parte 1: Implementación en n8n
 
-Plataforma enfocada en la construcción de **interfaces y aplicaciones internas**.
+**Enfoque:** Event-Driven / API — Backend & Workflows.
 
-Para este ejercicio se puede construir:
+### 🎯 Objetivo
 
-- Un formulario simulador de alertas.
-- Un JS Object para procesar la lógica.
-- Un panel de incidentes.
-- Un historial de eventos.
-- Indicadores visuales según la criticidad.
-- Notificaciones para incidentes críticos.
+Crear un microservicio mediante un Webhook que reciba una solicitud en formato JSON, evalúe las reglas de negocio y devuelva una respuesta con la decisión procesada.
 
-Flujo general:
+## 1. Crear el Webhook de entrada
 
-```text
-[ Formulario de Alerta ]
-          ↓
-[ JS Object ]
-          ↓
-[ Clasificación ]
-     ↙         ↘
- CRÍTICO    ADVERTENCIA / INFO
-    ↓             ↓
-[Registro]    [Historial]
-    ↓
-[Notificación]
-```
+Crear un nuevo workflow en n8n y agregar un nodo **Webhook**.
 
----
+Configurar las siguientes propiedades:
 
-# 📥 2. Captura y Procesamiento del Payload
+| Propiedad | Valor |
+|---|---|
+| HTTP Method | `POST` |
+| Path | `evaluar-descuento` |
+| Respond | `Using 'Respond to Webhook' Node` |
 
-El flujo debe estar preparado para recibir un objeto **JSON** con la siguiente estructura:
+El Webhook será el punto de entrada para recibir las solicitudes de evaluación.
+
+### Ejemplo de payload
 
 ```json
 {
-  "servicio": "auth-service",
-  "entorno": "produccion",
-  "codigo_error": 500,
-  "latencia_ms": 1250,
-  "desarrollador_responsable": "Tu Nombre"
+  "cliente": "Cliente Demo",
+  "monto": 40000,
+  "descuento_pct": 10
 }
 ```
 
-## 📋 Descripción de los campos
+## 2. Implementar la lógica de negocio
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `servicio` | String | Nombre del servicio afectado |
-| `entorno` | String | Entorno donde ocurrió el incidente |
-| `codigo_error` | Number | Código HTTP o código de error |
-| `latencia_ms` | Number | Latencia registrada en milisegundos |
-| `desarrollador_responsable` | String | Responsable del servicio o incidente |
+Agrega un nodo **Code** y selecciona el lenguaje Python.
 
----
+Requerimiento del código: Escribe la lógica necesaria utilizando la función nativa get_input_data() de n8n para:
 
-# 🧠 3. Lógica de Negocio
+- Extraer del JSON de entrada los campos: cliente (String), monto (Numérico) y descuento_pct (Numérico).
 
-La solución debe implementar una función en **JavaScript** que analice los datos recibidos y determine el nivel de criticidad del incidente.
+- Calcular el valor del descuento en dinero según la fórmula dada.
 
-## 🔴 CRÍTICO
+- Evaluar las 3 reglas de negocio y asignar la propiedad estado.
 
-Un incidente debe clasificarse como **CRÍTICO** cuando:
+- Retornar una estructura con la clave "json" que incluya los datos de entrada, el valor calculado del descuento y el estado final.
 
-```text
-entorno == "produccion"
-AND
-(
-    codigo_error >= 500
-    OR
-    latencia_ms > 1000
-)
-```
+## 3. Devolver la respuesta HTTP
 
-### Ejemplo
+Agregar un nodo **Respond to Webhook** al final del flujo.
+
+Configurar el nodo para devolver el resultado de la evaluación en formato JSON.
+
+Ejemplo de respuesta:
 
 ```json
 {
-  "servicio": "auth-service",
-  "entorno": "produccion",
-  "codigo_error": 500,
-  "latencia_ms": 1250,
-  "desarrollador_responsable": "Tu Nombre"
+  "cliente": "Cliente Demo",
+  "monto": 40000,
+  "descuento_pct": 10,
+  "valor_descuento": 4000,
+  "estado": "APROBADO_AUTOMATICO"
 }
 ```
 
-Resultado:
+El objetivo es que el cliente que realizó la petición HTTP reciba el resultado del procesamiento.
 
-```text
-CRÍTICO
-```
+## 4. Probar el flujo
 
----
-
-## 🟡 ADVERTENCIA
-
-Un incidente debe clasificarse como **ADVERTENCIA** cuando:
-
-```text
-entorno == "staging"
-OR
-latencia_ms >= 500 AND latencia_ms <= 1000
-```
-
-### Ejemplo
-
-```json
-{
-  "servicio": "payment-service",
-  "entorno": "staging",
-  "codigo_error": 200,
-  "latencia_ms": 700,
-  "desarrollador_responsable": "Tu Nombre"
-}
-```
-
-Resultado:
-
-```text
-ADVERTENCIA
-```
-
----
-
-## 🔵 INFO
-
-Cualquier escenario que no cumpla las condiciones anteriores debe clasificarse como:
-
-```text
-INFO
-```
-
-### Ejemplo
-
-```json
-{
-  "servicio": "catalog-service",
-  "entorno": "produccion",
-  "codigo_error": 200,
-  "latencia_ms": 200,
-  "desarrollador_responsable": "Tu Nombre"
-}
-```
-
-Resultado:
-
-```text
-INFO
-```
-
----
-
-# 💻 Implementación de la Lógica en JavaScript
-
-La siguiente función puede utilizarse como base para implementar la clasificación:
-
-```javascript
-function clasificarIncidente(payload) {
-
-  const {
-    servicio,
-    entorno,
-    codigo_error,
-    latencia_ms,
-    desarrollador_responsable
-  } = payload;
-
-  let criticidad = "";
-  let motivo = "";
-
-  if (
-    entorno === "produccion" &&
-    (codigo_error >= 500 || latencia_ms > 1000)
-  ) {
-
-    criticidad = "CRÍTICO";
-    motivo = "Error crítico o latencia elevada en producción.";
-
-  } else if (
-    entorno === "staging" ||
-    (latencia_ms >= 500 && latencia_ms <= 1000)
-  ) {
-
-    criticidad = "ADVERTENCIA";
-    motivo = "El incidente requiere seguimiento.";
-
-  } else {
-
-    criticidad = "INFO";
-    motivo = "Evento informativo sin condiciones críticas.";
-  }
-
-  return {
-    servicio,
-    entorno,
-    codigo_error,
-    latencia_ms,
-    desarrollador_responsable,
-    criticidad,
-    motivo
-  };
-}
-```
-
----
-
-# 🔀 4. Enrutamiento y Acciones
-
-Después de clasificar el incidente, el flujo debe tomar una decisión según el nivel de criticidad.
-
-## 🔴 Si el resultado es CRÍTICO
-
-Cuando:
-
-```text
-criticidad == "CRÍTICO"
-```
-
-se deben ejecutar las siguientes acciones:
-
-1. Registrar el incidente en una tabla o base de datos.
-2. Generar una notificación.
-3. Enviar una alerta al responsable.
-
-Ejemplo de flujo:
-
-```text
-[Clasificación]
-      ↓
-  CRÍTICO
-      ↓
-[Registrar Incidente]
-      ↓
-[Enviar Notificación]
-```
-
-La notificación puede ser:
-
-- Gmail.
-- Slack.
-- Microsoft Teams.
-- Una alerta en pantalla.
-- Otro mecanismo de notificación disponible.
-
----
-
-# 🟡🔵 Si el resultado es ADVERTENCIA o INFO
-
-Cuando el resultado sea:
-
-```text
-ADVERTENCIA
-```
-
-o:
-
-```text
-INFO
-```
-
-se debe guardar únicamente el evento en el historial o log general.
-
-```text
-[Clasificación]
-      ↓
-ADVERTENCIA / INFO
-      ↓
-[Historial / Log]
-```
-
-No es necesario generar una notificación crítica.
-
----
-
-# 🔄 Flujo Completo
-
-La arquitectura general del ejercicio puede representarse de la siguiente manera:
-
-```text
-                         ┌────────────────────┐
-                         │ Sistema Monitoreo  │
-                         │ Datadog / Prometheus│
-                         │ GitHub Actions     │
-                         └─────────┬──────────┘
-                                   │
-                                   │ JSON
-                                   ▼
-                         ┌────────────────────┐
-                         │ Webhook / Formulario│
-                         └─────────┬──────────┘
-                                   │
-                                   ▼
-                         ┌────────────────────┐
-                         │  Code / JS Object  │
-                         │                    │
-                         │ Clasificar evento  │
-                         └─────────┬──────────┘
-                                   │
-                                   ▼
-                         ┌────────────────────┐
-                         │  IF / Switch       │
-                         └─────────┬──────────┘
-                                   │
-                 ┌─────────────────┼─────────────────┐
-                 │                 │                 │
-                 ▼                 ▼                 ▼
-             CRÍTICO          ADVERTENCIA          INFO
-                 │                 │                 │
-                 ▼                 └────────┬────────┘
-        ┌─────────────────┐                 │
-        │ Registrar       │                 ▼
-        │ incidente       │          ┌──────────────┐
-        └────────┬────────┘          │ Historial /  │
-                 │                   │     Log      │
-                 ▼                   └──────────────┘
-        ┌─────────────────┐
-        │ Notificación    │
-        │     crítica     │
-        └─────────────────┘
-```
-
----
-
-# 🧪 5. Validación y Pruebas
-
-La solución debe probarse utilizando al menos **dos escenarios diferentes**:
-
-- Un payload que genere una alerta **CRÍTICA**.
-- Un payload que genere una alerta **ADVERTENCIA** o **INFO**.
-
-Las pruebas pueden realizarse mediante:
-
-- **cURL**
-- **Postman**
-- Formulario de prueba de Appsmith.
-
----
-
-## 🔴 Escenario 1 — CRÍTICO
-
-### Payload
-
-```json
-{
-  "servicio": "auth-service",
-  "entorno": "produccion",
-  "codigo_error": 500,
-  "latencia_ms": 1250,
-  "desarrollador_responsable": "Tu Nombre"
-}
-```
-
-### Resultado esperado
-
-```text
-Criticidad: CRÍTICO
-```
-
-### Acciones esperadas
-
-```text
-✓ Registrar incidente
-✓ Generar notificación
-✓ Asociar responsable
-```
-
----
-
-## 🟡 Escenario 2 — ADVERTENCIA
-
-### Payload
-
-```json
-{
-  "servicio": "payment-service",
-  "entorno": "staging",
-  "codigo_error": 200,
-  "latencia_ms": 700,
-  "desarrollador_responsable": "Tu Nombre"
-}
-```
-
-### Resultado esperado
-
-```text
-Criticidad: ADVERTENCIA
-```
-
-### Acciones esperadas
-
-```text
-✓ Registrar evento en historial
-✗ No generar alerta crítica
-```
-
----
-
-## 🔵 Escenario 3 — INFO
-
-### Payload
-
-```json
-{
-  "servicio": "catalog-service",
-  "entorno": "produccion",
-  "codigo_error": 200,
-  "latencia_ms": 200,
-  "desarrollador_responsable": "Tu Nombre"
-}
-```
-
-### Resultado esperado
-
-```text
-Criticidad: INFO
-```
-
-### Acciones esperadas
-
-```text
-✓ Registrar evento en historial
-✗ No generar alerta crítica
-```
-
----
-
-# 🧪 Prueba mediante cURL
-
-Si se utiliza **n8n**, se puede probar el Webhook utilizando el siguiente comando:
+Ejecutar el workflow y enviar una solicitud desde Postman o cURL.
 
 ```bash
-curl -X POST "<TU_TEST_WEBHOOK_URL>" \
+curl -X POST "<TU_WEBHOOK_URL>" \
   -H "Content-Type: application/json" \
   -d '{
-    "servicio": "auth-service",
-    "entorno": "produccion",
-    "codigo_error": 500,
-    "latencia_ms": 1250,
-    "desarrollador_responsable": "Tu Nombre"
+    "cliente": "Cliente Demo",
+    "monto": 40000,
+    "descuento_pct": 10
   }'
 ```
 
-> Reemplazar `<TU_TEST_WEBHOOK_URL>` por la URL correspondiente al Webhook configurado en n8n.
+Reemplaza `<TU_WEBHOOK_URL>` por la URL de prueba o producción del Webhook configurado en n8n.
 
 ---
 
-# 📦 Entregables del Taller
+# 🖥️ Parte 2: Implementación en Appsmith
 
-Se debe entregar **un único documento en formato PDF o Word** que contenga las evidencias de la implementación y las respuestas al cuestionario de reflexión.
+**Enfoque:** UI / Reactivo — Frontend & State Management.
+
+### 🎯 Objetivo
+
+Crear un formulario para capturar solicitudes de descuento y una tabla para visualizar los resultados de las evaluaciones.
+
+## 1. Diseñar la interfaz
+
+Crear una aplicación en Appsmith con los siguientes componentes:
+
+| Componente | Nombre | Tipo |
+|---|---|---|
+| Cliente | `txt_cliente` | Input de texto |
+| Monto de venta | `num_monto` | Input numérico |
+| Porcentaje de descuento | `num_descuento` | Input numérico |
+| Evaluar descuento | — | Button |
+| Historial de solicitudes | `tabla_historial` | Table |
+
+La interfaz debe permitir ingresar los datos, ejecutar la evaluación y consultar los registros generados.
+
+## 2. Crear el JS Object
+
+En el panel izquierdo, crea un New JS Object con el nombre EvaluadorDescuentos.
+
+**Requerimiento de la función JS:** Escribe una función asíncrona (procesar) que realice lo siguiente:
+
+-Validar que los campos de la interfaz no estén vacíos (mostrar una alerta si falta algún dato).
+
+- Leer los valores de los widgets txt_cliente, num_monto y num_descuento.
+
+- Ejecutar la misma lógica de negocio descrita en el escenario para determinar el estado y el valorDescuento.
+
+- Crear un nuevo objeto de registro que incluya los datos procesados, un identificador único (ej. Date.now()) y la hora de registro.
+
+- Guardar el nuevo registro en el almacenamiento local de Appsmith usando storeValue('historial', ...) para mantener la persistencia durante la sesión.
+
+- Limpiar los inputs del formulario y mostrar una alerta flotante (showAlert) informando el resultado.
+
+## 3. Vincular la interfaz
+
+Configura el evento onClick del botón para invocar tu función JavaScript.
+
+Conecta la propiedad Table Data de la tabla con el arreglo almacenado en tu objeto JS mediante expresiones corchete ({{ ... }}).
+
+La tabla mostrará las solicitudes procesadas y su estado correspondiente.
+
+> **Nota:** `appsmith.store` permite almacenar datos en el estado de la aplicación. No sustituye una base de datos persistente y compartida para un sistema de producción. Si se necesita persistencia duradera, debe utilizarse una fuente de datos apropiada.
 
 ---
 
-## 1. 📸 Evidencias Gráficas
+# 🔗 Parte 3: Reto de Integración OPCIONAL
 
-El documento debe incluir las siguientes capturas:
+**Enfoque:** Análisis e Integración.
 
-### 1.1 Flujo o interfaz
+**Duración estimada:** 10 minutos.
 
-Captura de pantalla que muestre la solución construida en la herramienta seleccionada.
+### 🎯 Objetivo
 
-**n8n:**
+Integrar Appsmith con n8n para que la interfaz utilice el Webhook como servicio de evaluación, en lugar de ejecutar localmente el JS Object.
 
-- Vista general del workflow.
-- Nodos configurados.
-- Conexiones entre los nodos.
+## Pasos de implementación
 
-**Appsmith:**
+1. Mantener el formulario de captura de datos en Appsmith.
+2. Crear una consulta de tipo **API REST** con método `POST`.
+3. Configurar la URL del Webhook de n8n.
+4. Enviar los datos del formulario en formato JSON.
+5. Recibir la respuesta de n8n.
+6. Mostrar el estado devuelto en la interfaz.
+7. Actualizar el historial con el resultado recibido.
 
-- Vista general de la interfaz.
-- Formulario de alertas.
-- Panel de incidentes.
+### Ejemplo de cuerpo de la petición
 
----
-
-### 1.2 Lógica JavaScript
-
-Captura de pantalla donde se evidencie la implementación de la lógica utilizada para clasificar la criticidad.
-
-Debe ser posible identificar las condiciones:
-
-```text
-CRÍTICO
-ADVERTENCIA
-INFO
+```json
+{
+  "cliente": "{{txt_cliente.text}}",
+  "monto": "{{Number(num_monto.text)}}",
+  "descuento_pct": "{{Number(num_descuento.text)}}"
+}
 ```
 
----
+Este ejemplo ilustra los datos que deben enviarse. En Appsmith, configura el cuerpo de la consulta utilizando sus expresiones de binding y un objeto JSON válido.
 
-### 1.3 Prueba del escenario CRÍTICO
+### Arquitectura de integración
 
-La evidencia debe mostrar:
+```text
+┌──────────────────────────┐
+│        Appsmith          │
+│                          │
+│ Formulario de descuentos │
+└────────────┬─────────────┘
+             │
+             │ HTTP POST
+             ▼
+┌──────────────────────────┐
+│          n8n             │
+│                          │
+│ Webhook                  │
+│ Code - Reglas de negocio │
+│ Respond to Webhook       │
+└────────────┬─────────────┘
+             │
+             │ Respuesta JSON
+             ▼
+┌──────────────────────────┐
+│        Appsmith          │
+│                          │
+│ Mostrar resultado        │
+│ Actualizar historial     │
+└──────────────────────────┘
+```
 
-- Payload enviado.
-- Resultado de la clasificación.
-- Registro generado.
-- Notificación generada.
+### Resultado esperado
 
----
+La integración permite combinar las fortalezas de ambas herramientas:
 
-### 1.4 Prueba del escenario ADVERTENCIA / INFO
+- **Appsmith:** captura de datos, visualización de resultados e interacción con el usuario.
+- **n8n:** procesamiento centralizado, automatización e integración con servicios externos.
 
-La evidencia debe mostrar:
-
-- Payload enviado.
-- Resultado de la clasificación.
-- Registro en el historial o log.
-
----
-
-### 1.5 Comando o herramienta utilizada para las pruebas
-
-Incluir evidencia de:
-
-- Comando `cURL`, o
-- Colección/request de **Postman**, o
-- Formulario utilizado en **Appsmith**.
-
----
-
-# 📝 2. Cuestionario de Reflexión y Experiencia
-
-Al final del documento se deben responder las siguientes preguntas.
-
----
-
-## Pregunta 1
-
-**¿Cuáles fueron las principales ventajas y limitaciones que encontraste al implementar la lógica de negocio utilizando una herramienta Low-Code/No-Code en comparación con el desarrollo tradicional (código desde cero)?**
-
-### Aspectos que se pueden analizar
-
-- Velocidad de implementación.
-- Facilidad de configuración.
-- Curva de aprendizaje.
-- Reutilización de componentes.
-- Integración con otros servicios.
-- Control sobre la lógica.
-- Flexibilidad.
-- Mantenimiento.
-- Dependencia de la plataforma.
-- Escalabilidad.
+Así, ambas plataformas pasan de ser alternativas para resolver el mismo problema a ser componentes complementarios de una solución.
 
 ---
 
-## Pregunta 2
+# 🧪 Casos de Prueba
 
-**Según tu experiencia en este ejercicio, ¿en qué casos de uso reales de un entorno de TI recomendarías el uso de n8n y en cuáles el de Appsmith?**
+Los siguientes escenarios permiten verificar que las reglas de negocio se ejecutan en el orden esperado.
 
-### Aspectos que se pueden analizar
+| Caso | Monto | Descuento | Valor del descuento | Resultado esperado |
+|---|---:|---:|---:|---|
+| 1 | $40.000 | 10 % | $4.000 | `APROBADO_AUTOMATICO` |
+| 2 | $40.000 | 20 % | $8.000 | `RECHAZADO_EXCESIVO` |
+| 3 | $20.000 | 20 % | $4.000 | `REQUIERE_APROBACION_GERENCIAL` |
+| 4 | $50.000 | 10 % | $5.000 | `APROBADO_AUTOMATICO` |
+| 5 | $60.000 | 15 % | $9.000 | `RECHAZADO_EXCESIVO` |
 
-**n8n:**
-
-- Automatización de procesos.
-- Integración entre sistemas.
-- Procesamiento de eventos.
-- Webhooks.
-- Notificaciones.
-- Flujos de integración.
-- Procesos programados.
-
-**Appsmith:**
-
-- Aplicaciones internas.
-- Dashboards.
-- Paneles administrativos.
-- Formularios.
-- Herramientas de operación.
-- Interfaces para equipos de negocio.
+**Observación:** Un descuento de exactamente $5.000 no se rechaza por exceso, porque la regla exige que el valor sea estrictamente superior a $5.000.
 
 ---
 
-## Pregunta 3
+# ❓ Cuestionario de Reflexión y Comparación
 
-**¿Qué impacto consideras que tienen estas plataformas en la velocidad de entrega (Time-to-Market) y en la colaboración entre equipos técnicos y de negocio?**
+Al finalizar el ejercicio, responder las siguientes preguntas.
 
-### Aspectos que se pueden analizar
+## 1. Experiencia de Desarrollo y Curva de Aprendizaje
 
-- Reducción del tiempo de desarrollo.
-- Prototipado rápido.
-- Participación de usuarios de negocio.
-- Reducción de tareas repetitivas.
-- Integración entre equipos.
-- Automatización de procesos.
-- Dependencia de conocimientos técnicos.
-- Evolución y mantenimiento de las soluciones.
+- ¿En cuál de las dos herramientas resultó más intuitivo modelar la regla de negocio y por qué?
+- ¿Cómo afectó la forma de trabajar con variables (Python en n8n frente a JavaScript en Appsmith)?
+- ¿Qué diferencias se identificaron al depurar errores y probar la lógica?
+
+## 2. Arquitectura y Enfoque de Uso
+
+- Si una empresa necesita automatizar un proceso que se ejecuta todas las noches sin interacción humana —por ejemplo, sincronizar 10.000 registros entre dos bases de datos—, ¿cuál herramienta elegirías y por qué?
+- Si un equipo de Operaciones necesita un panel interactivo para aprobar o rechazar solicitudes manualmente y enviar notificaciones, ¿cuál herramienta utilizarías como capa principal?
+- ¿Qué diferencias existen entre automatizar procesos y construir interfaces para usuarios?
+
+## 3. Gestión de Datos y Persistencia
+
+- ¿Qué alternativa utilizarías si el historial debe conservarse de manera duradera y compartirse entre múltiples usuarios?
+- ¿Cómo influye la persistencia de los datos en la confiabilidad de la solución?
 
 ---
 
-# 📋 Checklist de Entrega
+# 📋 Entregables
+Documento con los screenshoots de los flujos diseñados en las herramientas n8n y Appsmith.
+Agregar la respuesta a las preguntas propuestas de comparación.
 
-Antes de entregar el documento, verificar que incluya:
+---
 
-- [ ] Herramienta seleccionada: **n8n o Appsmith**.
-- [ ] Payload JSON configurado.
-- [ ] Lógica de clasificación implementada.
-- [ ] Clasificación **CRÍTICO** probada.
-- [ ] Clasificación **ADVERTENCIA o INFO** probada.
-- [ ] Registro de incidentes implementado.
-- [ ] Notificación para incidentes críticos implementada.
-- [ ] Evidencia del flujo o interfaz.
-- [ ] Evidencia del código JavaScript.
-- [ ] Evidencia del escenario CRÍTICO.
-- [ ] Evidencia del escenario ADVERTENCIA / INFO.
-- [ ] Evidencia de cURL, Postman o formulario.
-- [ ] Respuesta a las tres preguntas de reflexión.
-- [ ] Documento final en **PDF o Word**.
+# 📌 Conclusiones
+
+Este taller permite comparar dos enfoques Low-Code complementarios:
+
+- **n8n** facilita la automatización de procesos orientados a eventos, la integración entre sistemas y la ejecución de reglas de negocio mediante workflows.
+- **Appsmith** facilita la creación de interfaces internas, formularios interactivos, paneles administrativos y herramientas de gestión.
+- **La integración de ambas plataformas** permite separar la experiencia de usuario del procesamiento de negocio, favoreciendo la reutilización de la lógica y la evolución de la solución.
+
+La elección depende del problema que se desea resolver, los requisitos de persistencia, la interacción humana, las integraciones necesarias y las condiciones operativas del sistema.

@@ -2,551 +2,524 @@
 
 ## 🎯 Objetivo
 
-Configurar un flujo de trabajo **asíncrono e interactivo en n8n** que permita:
+Configurar un flujo de trabajo en **n8n** que permita:
 
 - Recibir una solicitud mediante un **Webhook HTTP POST**.
 - Procesar los datos recibidos.
-- Ejecutar reglas de negocio mediante código **JavaScript**.
-- Determinar automáticamente el resultado de una solicitud.
+- Ejecutar reglas de negocio mediante código python.
+- Determinar automáticamente el resultado de una solicitud de crédito.
 - Enrutar el flujo según el resultado de la evaluación.
-- Almacenar información en una base de datos.
-- Enviar una notificación por correo electrónico cuando sea necesario.
+- Almacenar las solicitudes aprobadas en una Data Table.
+- Enviar una notificación por correo electrónico cuando una solicitud sea rechazada.
 - Responder al sistema que realizó la solicitud.
 
----
-
-# 📐 Estructura del Flujo
-
-El flujo de automatización está compuesto por los siguientes nodos:
+## 📐 Arquitectura del flujo
 
 ```text
-┌──────────────────┐
-│   Webhook POST   │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│   Code (JS)      │
-│ Reglas de negocio│
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│   IF / Switch    │
-└───────┬──────────┘
-        │
-    ┌───┴───────────────┐
-    │                   │
-   TRUE                FALSE
-    │                   │
-    ▼                   ▼
-┌───────────────┐  ┌─────────────────┐
-│ Data Table /  │  │  Send Email     │
-│    Insert     │  │     (Gmail)     │
-└───────┬───────┘  └────────┬────────┘
-        │                   │
-        └─────────┬─────────┘
-                  │
-                  ▼
-        ┌──────────────────────┐
-        │ Respond to Webhook   │
-        └──────────────────────┘
+                 ┌──────────────────────┐
+                 │     Webhook POST     │
+                 │  evaluar-solicitud   │
+                 └──────────┬───────────┘
+                            │
+                            ▼
+                 ┌──────────────────────┐
+                 │        Code          │
+                 │  Reglas de negocio   │
+                 └──────────┬───────────┘
+                            │
+                            ▼
+                 ┌──────────────────────┐
+                 │         IF           │
+                 │ ¿Estado = APROBADO?  │
+                 └────────┬───────┬─────┘
+                          │       │
+                    TRUE  │       │ FALSE
+                          ▼       ▼
+                 ┌────────────┐ ┌──────────────┐
+                 │ Data Table │ │ Gmail: enviar│
+                 │ Insert Row │ │ notificación │
+                 └──────┬─────┘ └──────┬───────┘
+                        │              │
+                        └──────┬───────┘
+                               ▼
+                 ┌──────────────────────┐
+                 │  Respond to Webhook  │
+                 └──────────────────────┘
 ```
 
-### Flujo resumido
+## 🛠️ Configuración paso a paso
 
-```text
-[ Webhook POST ]
-       ↓
-[ Code (JS) ]
-       ↓
-[ IF / Switch ]
-    ↙       ↘
- TRUE      FALSE
-  ↓          ↓
-[Data]    [Gmail]
-    ↘      ↙
- [Respond to Webhook]
-```
+### 1. Crear una cuenta en n8n
 
----
+1. Ingresa a [https://app.n8n.cloud/register](https://app.n8n.cloud/register).
+2. Regístrate y completa el proceso de acceso.
+3. Una vez dentro de la plataforma, selecciona la opción para crear un nuevo workflow.
+4. Asigna un nombre al flujo, por ejemplo: `Evaluacion de solicitudes de credito`.
 
-# 🛠️ Configuración Paso a Paso
+### 2. Configurar el Webhook de entrada
 
-## 1. Nodo Webhook
+El Webhook será el punto de entrada de las solicitudes. Permitirá que aplicaciones externas envíen información a n8n mediante una petición HTTP.
 
-Agregar un nodo **Webhook** como punto de entrada del flujo.
+**Paso 1. Agregar el nodo**
 
-### Configuración
+1. En el editor del workflow, haz clic en `+`.
+2. Busca el nodo **Webhook** y agrégalo al flujo.
+
+**Paso 2. Configurar los parámetros**
 
 | Propiedad | Valor |
 |---|---|
-| **HTTP Method** | `POST` |
-| **Path** | `evaluar-solicitud` |
-| **Respond** | `Using 'Respond to Webhook' Node` |
+| HTTP Method | `POST` |
+| Path | `evaluar-solicitud` |
+| Respond | `Using 'Respond to Webhook' Node` |
 
-El Webhook recibirá una solicitud HTTP con la información de la solicitud de crédito.
+Con esta configuración, el flujo recibirá solicitudes HTTP POST y delegará la respuesta final al nodo `Respond to Webhook`.
 
-### Ejemplo de datos recibidos
+**Paso 3. Identificar la URL**
+
+Abre el nodo Webhook y localiza las URL disponibles:
+
+- **Test URL:** se utiliza durante las pruebas manuales.
+- **Production URL:** se utiliza cuando el workflow está activo.
+
+Copia la URL que corresponda al tipo de ejecución que estés realizando.
+
+**Ejemplo de datos que recibirá el Webhook:**
 
 ```json
 {
   "solicitante": "Aura Alba",
   "monto": 15000,
-  "score_crediticio": 750
+  "score_crediticio": 750,
+  "email": "solicitante@example.com"
 }
 ```
 
----
+El correo electrónico es opcional para la evaluación, pero será necesario si deseas enviar la notificación al solicitante de forma dinámica.
 
-# 2. Nodo Code (JavaScript)
+### 3. Implementar la lógica de negocio con Code
 
-Agregar un nodo **Code** después del Webhook.
+El nodo `Code` ejecutará las reglas que determinan si una solicitud de crédito puede aprobarse automáticamente o debe rechazarse.
 
-Cambiar el selector de lenguaje a:
+**Paso 1. Agregar el nodo**
 
-```text
-JavaScript
+1. Haz clic en el `+` situado después del Webhook.
+2. Busca y agrega el nodo **Code**.
+3. Conecta la salida del Webhook con la entrada del nodo Code.
+
+**Paso 2. Configurar el lenguaje**
+
+En las propiedades del nodo, selecciona:
+
+- **Language:** `Python`.
+- **Mode:** `Run Once for All Items`.
+
+**Paso 3. Ingresar el código**
+
+Copia el siguiente código en el editor:
+
+```python
+resultados = []
+
+for item in _items:
+    # Obtener los datos enviados por el Webhook
+    raw_json = item.get('json', {})
+    data = raw_json.get('body', raw_json)
+
+    monto = data.get('monto', 0)
+    score = data.get('score_crediticio', 0)
+    solicitante = data.get('solicitante', 'Desconocido')
+    email = data.get('email', '')
+
+    # Convertir los valores numéricos
+    try:
+        monto = float(monto)
+        score = float(score)
+    except (ValueError, TypeError):
+        monto = 0
+        score = -1
+
+    # Aplicar las reglas de negocio
+    if monto <= 0:
+        estado = "RECHAZADO_ERROR_DATOS"
+        motivo = "El monto debe ser superior a 0"
+
+    elif score < 0 or score > 1000:
+        estado = "RECHAZADO_ERROR_DATOS"
+        motivo = "El score crediticio debe estar entre 0 y 1000"
+
+    elif monto > 50000 and score < 700:
+        estado = "RECHAZADO_ALTO_RIESGO"
+        motivo = "Monto elevado sin score crediticio suficiente"
+
+    else:
+        estado = "APROBADO"
+        motivo = "Cumple criterios automáticos"
+
+    # Construir la salida del nodo
+    resultados.append({
+        "json": {
+            "solicitante": solicitante,
+            "email": email,
+            "monto": monto,
+            "score": score,
+            "estado": estado,
+            "motivo": motivo
+        }
+    })
+
+return resultados
 ```
 
-El nodo será responsable de procesar la información recibida y ejecutar las reglas de negocio.
+**¿Qué hace el código?**
 
-## Código
+1. Lee los datos que recibe del Webhook.
+2. Extrae el solicitante, el monto, el score crediticio y el correo electrónico.
+3. Evalúa las reglas de negocio en orden.
+4. Construye un resultado con el estado y la justificación.
+5. Devuelve la información para que los siguientes nodos puedan utilizarla.
 
-```javascript
-const items = $input.all();
-const resultados = [];
+### 4. Configurar el enrutamiento condicional con IF
 
-for (const item of items) {
+El nodo `IF` permitirá separar las solicitudes aprobadas de las rechazadas.
 
-  const data = item.json.body || {};
+**Paso 1. Agregar el nodo**
 
-  const monto = data.monto || 0;
-  const score = data.score_crediticio || 0;
-  const solicitante = data.solicitante || 'Desconocido';
+1. Haz clic en `+` después del nodo Code.
+2. Busca y agrega **IF**.
+3. Conecta la salida del nodo Code con la entrada del nodo IF.
 
-  let estado = '';
-  let motivo = '';
+**Paso 2. Definir la condición**
 
-  if (monto <= 0) {
-
-    estado = "RECHAZADO_ERROR_DATOS";
-    motivo = "El monto debe ser superior a 0";
-
-  } else if (monto > 50000 && score < 700) {
-
-    estado = "RECHAZADO_ALTO_RIESGO";
-    motivo = "Monto elevado sin score crediticio suficiente";
-
-  } else {
-
-    estado = "APROBADO";
-    motivo = "Cumple criterios automáticos";
-  }
-
-  resultados.push({
-    json: {
-      solicitante,
-      monto,
-      score,
-      estado,
-      motivo
-    }
-  });
-}
-
-return resultados;
-```
-
----
-
-# 🧠 Reglas de Negocio
-
-El nodo `Code` aplica las siguientes reglas:
-
-### Regla 1 — Datos inválidos
-
-Si:
-
-```text
-monto <= 0
-```
-
-El resultado será:
-
-```text
-Estado: RECHAZADO_ERROR_DATOS
-```
-
-Motivo:
-
-```text
-El monto debe ser superior a 0
-```
-
----
-
-### Regla 2 — Alto riesgo
-
-Si:
-
-```text
-monto > 50000
-AND
-score < 700
-```
-
-El resultado será:
-
-```text
-Estado: RECHAZADO_ALTO_RIESGO
-```
-
-Motivo:
-
-```text
-Monto elevado sin score crediticio suficiente
-```
-
----
-
-### Regla 3 — Aprobación automática
-
-Si ninguna de las reglas anteriores se cumple:
-
-```text
-Estado: APROBADO
-```
-
-Motivo:
-
-```text
-Cumple criterios automáticos
-```
-
----
-
-# 🔀 3. Nodo IF / Switch
-
-Después del nodo `Code`, agregar un nodo **IF** o **Switch** para enrutar el flujo dependiendo del resultado obtenido.
-
-El campo principal para evaluar es:
-
-```text
-estado
-```
-
-### Condición de ejemplo
-
-```text
-estado == "APROBADO"
-```
-
-El flujo puede dividirse de la siguiente manera:
-
-```text
-                    ┌─── APROBADO ───→ Data Table / Insert
-                    │
-[ Code ] → [ IF ] ──┤
-                    │
-                    └─── RECHAZADO ──→ Send Email (Gmail)
-```
-
----
-
-# 🗄️ 4. Data Table / Insert
-
-Para las solicitudes aprobadas, conectar la salida **TRUE** del nodo `IF` con el nodo encargado de almacenar el registro.
-
-Por ejemplo:
-
-```text
-[ IF - TRUE ]
-      ↓
-[ Data Table / Insert ]
-```
-
-Los datos que pueden almacenarse son:
+Configura los siguientes valores:
 
 | Campo | Valor |
 |---|---|
-| `solicitante` | Nombre del solicitante |
-| `monto` | Monto solicitado |
-| `score` | Score crediticio |
-| `estado` | Resultado de evaluación |
-| `motivo` | Justificación del resultado |
+| Value 1 | `{{ $json.estado }}` |
+| Operation | `String` → `Equal` |
+| Value 2 | `APROBADO` |
 
----
+La interfaz puede presentar la operación con una etiqueta ligeramente diferente según la versión de n8n.
 
-# 📧 5. Send Email (Gmail)
+**Paso 3. Interpretar las salidas**
 
-Para solicitudes que no cumplen los criterios de aprobación, conectar la salida **FALSE** con un nodo de envío de correo.
+- **True:** la solicitud cumple los criterios automáticos de aprobación.
+- **False:** la solicitud fue rechazada por datos inválidos o por alto riesgo.
 
-```text
-[ IF - FALSE ]
-      ↓
-[ Send Email (Gmail) ]
+Las dos salidas permitirán ejecutar acciones diferentes según el resultado de la evaluación.
+
+### 5. Rama TRUE: almacenar las solicitudes aprobadas
+
+Las solicitudes aprobadas se guardarán en una Data Table de n8n.
+
+#### Paso 1. Crear la Data Table
+
+1. Regresa al menú principal de n8n.
+2. Busca la sección **Data tables** o la opción **New data table**, según la versión de la plataforma.
+3. Crea una tabla con el nombre:
+
+   `solicitudes_credito`
+
+4. Configura las siguientes columnas:
+
+| Columna | Tipo |
+|---|---|
+| `solicitante` | String |
+| `monto` | Number |
+| `score` | Number |
+| `estado` | String |
+| `motivo` | String |
+
+5. Guarda o crea la tabla.
+
+#### Paso 2. Agregar el nodo Data Table
+
+1. Regresa al workflow.
+2. En la salida **True** del nodo IF, haz clic en `+`.
+3. Busca y agrega el nodo **Data Table**.
+4. Selecciona la tabla `solicitudes_credito`.
+5. En la operación, selecciona **Insert Row** o la opción equivalente para insertar una fila.
+
+#### Paso 3. Mapear los datos
+
+En los campos de la operación, asigna las expresiones correspondientes:
+
+| Columna de destino | Expresión |
+|---|---|
+| `solicitante` | `{{ $json.solicitante }}` |
+| `monto` | `{{ $json.monto }}` |
+| `score` | `{{ $json.score }}` |
+| `estado` | `{{ $json.estado }}` |
+| `motivo` | `{{ $json.motivo }}` |
+
+Utiliza el modo de expresión de cada campo para introducir los valores dinámicos.
+
+**Resultado esperado:** cuando una solicitud sea aprobada, se insertará un registro en la tabla.
+
+### 6. Rama FALSE: enviar un correo mediante Gmail
+
+Las solicitudes rechazadas activarán una notificación por correo electrónico.
+
+#### Paso 1. Agregar el nodo Gmail
+
+1. En la salida **False** del nodo IF, haz clic en `+`.
+2. Busca el nodo **Gmail**.
+3. Selecciona la operación para enviar un mensaje, normalmente **Send a message** o **Send**.
+
+#### Paso 2. Conectar la cuenta de Google
+
+1. En el apartado de credenciales, selecciona **Create new credential** o la opción equivalente.
+2. Sigue el proceso de autenticación y autorización de Google.
+3. Guarda las credenciales y verifica que el nodo pueda utilizar la cuenta.
+
+La conexión puede requerir una configuración adicional de Google OAuth, según el tipo de cuenta y las opciones disponibles en tu instancia de n8n.
+
+#### Paso 3. Configurar el destinatario
+
+En el campo **To**, puedes usar un correo fijo para la demostración.
+
+Para enviar el mensaje al correo incluido en el JSON de entrada, utiliza esta expresión:
+
+```javascript
+{{ $json.email }}
 ```
 
-El correo puede utilizar la información generada por el nodo `Code`, por ejemplo:
+Si el correo no está incluido en la solicitud, asegúrate de configurar un destinatario de prueba válido antes de ejecutar la rama de rechazo.
+
+#### Paso 4. Configurar el asunto
+
+En **Subject**, escribe:
 
 ```text
-Solicitante: {{$json.solicitante}}
-
-Monto solicitado: {{$json.monto}}
-
-Score crediticio: {{$json.score}}
-
-Estado: {{$json.estado}}
-
-Motivo: {{$json.motivo}}
+Actualización de tu solicitud de crédito - Rechazada
 ```
 
-Esto permite notificar automáticamente cuando una solicitud debe ser rechazada o requiere atención.
+En **Message Type**, selecciona `Text` o la opción equivalente para texto plano.
 
----
+#### Paso 5. Configurar el cuerpo del correo
 
-# 🔄 6. Respond to Webhook
-
-Finalmente, conectar el flujo con:
+En el campo **Message** o **Body**, utiliza el siguiente contenido:
 
 ```text
-Respond to Webhook
+                Hola {{ $json.solicitante }},                      Lamentamos informarte que tu solicitud de crédito por un monto de ${{ $json.monto }} ha sido rechazada.                      Motivo del sistema: {{ $json.motivo }}                      Si tienes dudas, por favor contáctanos.
 ```
 
-Este nodo devuelve la respuesta al sistema que realizó la solicitud HTTP.
+Las expresiones consultan directamente el resultado del nodo Code, de modo que los datos originales sigan disponibles aunque el nodo Gmail genere una respuesta propia.
 
-Un ejemplo de respuesta podría ser:
+**Resultado esperado:** cada solicitud que siga la rama False enviará un correo con el nombre, el monto y el motivo del rechazo.
+
+### 7. Configurar Respond to Webhook
+
+Este nodo devolverá el resultado de la evaluación al sistema que envió la solicitud HTTP.
+
+#### Paso 1. Agregar el nodo
+
+1. Busca el nodo **Respond to Webhook**.
+2. Conecta a él las salidas finales de las dos ramas:
+   - La salida del nodo Data Table.
+   - La salida del nodo Gmail.
+
+Asegúrate de que ambas ramas lleguen al nodo de respuesta. Solo se ejecutará la rama que corresponda a la condición evaluada.
+
+#### Paso 2. Configurar la respuesta
+
+En el nodo Respond to Webhook, configura:
+
+- **Respond With:** `JSON`.
+- **Response Code:** activa el modo de expresión y utiliza:
+
+```javascript
+{{  $json.estado === 'APROBADO' ? 200 : 400}}
+```
+
+Esto devuelve HTTP `200` cuando la solicitud es aprobada y HTTP `400` cuando se rechaza.
+
+> Nota: HTTP 400 representa un rechazo de la solicitud en esta demostración, pero en una API de producción normalmente se reserva para solicitudes incorrectas. Un rechazo de negocio puede comunicarse también con HTTP 200 y un campo `estado` que indique el resultado.
+
+#### Paso 3. Definir el cuerpo de la respuesta
+
+En el campo **Response Body**, utiliza el modo de expresión para construir el siguiente objeto JSON:
+
+```javascript
+={{
+  {
+     "status": "{{ $json.estado }}",
+      "applicant": "{{ $json.solicitante }}",
+      "amount": {{ $json.monto }},
+      "message": "{{ $json.motivo }}",
+      "timestamp": "{{ $now.toISOString() }}"
+  }
+}}
+```
+
+Esta configuración consulta el resultado del nodo Code, independientemente de que la rama haya pasado por Data Table o por Gmail.
+
+**Ejemplo de respuesta para una solicitud aprobada:**
 
 ```json
 {
-  "solicitante": "Aura Alba",
-  "monto": 15000,
+  "status": "APROBADO",
+  "applicant": "Aura Alba",
+  "amount": 15000,
   "score": 750,
-  "estado": "APROBADO",
-  "motivo": "Cumple criterios automáticos"
+  "message": "Cumple criterios automáticos",
+  "timestamp": "2026-10-09T12:00:00.000Z"
 }
 ```
 
----
+La fecha y hora del ejemplo son ilustrativas; n8n generará el valor real durante la ejecución.
 
-# 🧪 Probando el Flujo vía cURL
+## 🧪 Probar el workflow con cURL
 
-## 1. Ejecutar el Workflow
+### 1. Probar el Webhook en modo de prueba
 
-En n8n:
+1. Abre el nodo Webhook.
+2. Haz clic en **Listen for test event** o en la opción equivalente para escuchar una solicitud de prueba.
+3. Copia la **Test URL** del nodo.
 
-1. Abrir el workflow.
-2. Hacer clic en **Execute workflow**.
-3. El Webhook quedará preparado para recibir la solicitud de prueba.
+La URL de prueba suele incluir `/webhook-test/`. Utiliza la dirección completa que muestre tu instancia.
 
----
+### 2. Enviar una solicitud desde la terminal
 
-## 2. Obtener la URL del Webhook
-
-Copiar la URL de prueba generada por el nodo **Webhook**.
-
-Ejemplo:
-
-```text
-<TU_TEST_WEBHOOK_URL>
-```
-
----
-
-## 3. Ejecutar la solicitud desde la terminal
-
-Utilizar el siguiente comando:
+Reemplaza `TU_TEST_WEBHOOK_URL` por la URL copiada del nodo Webhook.
 
 ```bash
-curl -X POST "<TU_TEST_WEBHOOK_URL>" \
+curl -X POST "TU_TEST_WEBHOOK_URL" \
   -H "Content-Type: application/json" \
   -d '{
-    "solicitante": "Aura Alba",
-    "monto": 15000,
-    "score_crediticio": 750
+    "solicitante": "Pepita Perez",
+    "monto": 10000,
+    "score_crediticio": 800,
+    "email": "correo-de-prueba@example.com"
   }'
 ```
 
-> Reemplazar `<TU_TEST_WEBHOOK_URL>` por la URL proporcionada por el nodo Webhook de n8n.
+Puedes ejecutar el comando desde una terminal Linux, macOS o desde una herramienta como Postman.
 
----
+**Importante:** el Webhook de prueba debe estar escuchando cuando envíes la petición. Para utilizar la URL de producción, activa el workflow y usa la Production URL correspondiente.
 
-# 📊 Ejemplos de Prueba
+## 📊 Casos de prueba
 
-## ✅ Caso 1 — Solicitud aprobada
+### Caso 1: solicitud aprobada
 
-### Request
-
-```json
-{
-  "solicitante": "Aura Alba",
-  "monto": 15000,
-  "score_crediticio": 750
-}
-```
-
-### Resultado esperado
+**Entrada:**
 
 ```json
 {
   "solicitante": "Aura Alba",
   "monto": 15000,
-  "score": 750,
-  "estado": "APROBADO",
-  "motivo": "Cumple criterios automáticos"
+  "score_crediticio": 750,
+  "email": "correo-de-prueba@example.com"
 }
 ```
 
-Flujo:
+**Resultado esperado:**
 
-```text
-Webhook
-   ↓
-Code
-   ↓
-IF → TRUE
-   ↓
-Data Table / Insert
-   ↓
-Respond to Webhook
+```json
+{
+  "status": "APROBADO",
+  "applicant": "Aura Alba",
+  "amount": 15000,
+  "score": 750,
+  "message": "Cumple criterios automáticos"
+}
 ```
 
----
+**Recorrido:** Webhook → Code → IF (True) → Data Table → Respond to Webhook.
 
-## ❌ Caso 2 — Monto inválido
+### Caso 2: monto inválido
 
-### Request
+**Entrada:**
 
 ```json
 {
   "solicitante": "Aura Alba",
   "monto": 0,
-  "score_crediticio": 750
+  "score_crediticio": 750,
+  "email": "correo-de-prueba@example.com"
 }
 ```
 
-### Resultado esperado
+**Resultado esperado:**
 
 ```json
 {
-  "solicitante": "Aura Alba",
-  "monto": 0,
+  "status": "RECHAZADO_ERROR_DATOS",
+  "applicant": "Aura Alba",
+  "amount": 0,
   "score": 750,
-  "estado": "RECHAZADO_ERROR_DATOS",
-  "motivo": "El monto debe ser superior a 0"
+  "message": "El monto debe ser superior a 0"
 }
 ```
 
----
+**Recorrido:** Webhook → Code → IF (False) → Gmail → Respond to Webhook.
 
-## ⚠️ Caso 3 — Alto riesgo
+### Caso 3: solicitud de alto riesgo
 
-### Request
+**Entrada:**
 
 ```json
 {
-  "solicitante": "Aura Alba",
+  "solicitante": "Pepita Perez",
   "monto": 75000,
-  "score_crediticio": 650
+  "score_crediticio": 650,
+  "email": "correo-de-prueba@example.com"
 }
 ```
 
-### Resultado esperado
+**Resultado esperado:**
 
 ```json
 {
-  "solicitante": "Aura Alba",
-  "monto": 75000,
+  "status": "RECHAZADO_ALTO_RIESGO",
+  "applicant": "Pepita Perez",
+  "amount": 75000,
   "score": 650,
-  "estado": "RECHAZADO_ALTO_RIESGO",
-  "motivo": "Monto elevado sin score crediticio suficiente"
+  "message": "Monto elevado sin score crediticio suficiente"
 }
 ```
 
-Flujo:
+**Recorrido:** Webhook → Code → IF (False) → Gmail → Respond to Webhook.
 
-```text
-Webhook
-   ↓
-Code
-   ↓
-IF → FALSE
-   ↓
-Send Email (Gmail)
-   ↓
-Respond to Webhook
+### Caso 4: monto elevado con score suficiente
+
+**Entrada:**
+
+```json
+{
+  "solicitante": "Carlos Perez",
+  "monto": 75000,
+  "score_crediticio": 750,
+  "email": "correo-de-prueba@example.com"
+}
 ```
 
----
+**Resultado esperado:** `APROBADO`, porque la regla de rechazo por alto riesgo requiere que el monto sea superior a 50.000 y el score sea inferior a 700.
 
-# 🔗 Flujo Completo
+**Recorrido:** Webhook → Code → IF (True) → Data Table → Respond to Webhook.
 
-La automatización completa puede representarse de la siguiente manera:
-
-```text
-                    ┌─────────────────────┐
-                    │    Webhook POST     │
-                    │ evaluar-solicitud   │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │      Code (JS)      │
-                    │                     │
-                    │  Evalúa las reglas  │
-                    │    de negocio       │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │     IF / Switch     │
-                    │                     │
-                    │ estado = APROBADO?  │
-                    └──────┬───────┬──────┘
-                           │       │
-                    TRUE   │       │   FALSE
-                           │       │
-                           ▼       ▼
-                 ┌─────────────┐ ┌─────────────┐
-                 │ Data Table  │ │ Send Email  │
-                 │   Insert    │ │   (Gmail)   │
-                 └──────┬──────┘ └──────┬──────┘
-                        │               │
-                        └───────┬───────┘
-                                │
-                                ▼
-                    ┌─────────────────────┐
-                    │ Respond to Webhook  │
-                    └─────────────────────┘
-```
-
----
-
-# 🧩 Componentes del Workflow
+## 🧩 Componentes del workflow
 
 | Nodo | Responsabilidad |
 |---|---|
-| **Webhook** | Recibir solicitudes HTTP |
-| **Code** | Ejecutar las reglas de negocio |
-| **IF / Switch** | Enrutar según el resultado |
-| **Data Table / Insert** | Almacenar solicitudes aprobadas |
-| **Send Email (Gmail)** | Notificar resultados no aprobados |
-| **Respond to Webhook** | Devolver la respuesta al cliente |
+| Webhook | Recibir solicitudes HTTP POST |
+| Code | Ejecutar las reglas de negocio |
+| IF | Separar solicitudes aprobadas y rechazadas |
+| Data Table | Almacenar solicitudes aprobadas |
+| Gmail | Enviar notificaciones de rechazo |
+| Respond to Webhook | Devolver el resultado al cliente |
 
----
+## 📌 Conclusión
 
-# 📌 Resumen
-
-Este ejercicio demuestra cómo utilizar **n8n para implementar una arquitectura orientada a eventos**, donde una solicitud externa puede iniciar automáticamente un flujo de procesamiento.
+Este ejercicio demuestra cómo utilizar **n8n para construir una automatización orientada a eventos**, en la que una solicitud externa inicia un flujo de procesamiento que ejecuta reglas de negocio, toma decisiones, almacena datos y activa notificaciones.
 
 La solución integra:
 
-- 🌐 **Webhooks** para recibir eventos.
-- ⚙️ **JavaScript** para implementar reglas de negocio.
-- 🔀 **IF / Switch** para tomar decisiones.
-- 🗄️ **Persistencia** mediante Data Table.
-- 📧 **Notificaciones automáticas** mediante Gmail.
-- 🔄 **Respond to Webhook** para devolver el resultado.
+- 🌐 Webhooks para recibir solicitudes.
+- ⚙️ Python para implementar la lógica de negocio.
+- 🔀 IF para enrutar el flujo.
+- 🗄️ Data Tables para almacenar registros.
+- 📧 Gmail para enviar notificaciones.
+- 🔄 Respond to Webhook para responder al sistema cliente.
 
-El flujo permite separar la recepción del evento, el procesamiento de las reglas y las acciones posteriores, facilitando la construcción de procesos automatizados y extensibles.
+El resultado es un flujo que permite separar la recepción de datos, la evaluación y las acciones posteriores, facilitando la comprensión de los conceptos de automatización e integración de servicios.
